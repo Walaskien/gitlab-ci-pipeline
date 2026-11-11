@@ -1,0 +1,10 @@
+# One service, parameterised per environment. The CI deploy jobs pick the
+# environment with the project name (-p) and the variables below.
+services:
+  app:
+    image: ${IMAGE_REF:?set IMAGE_REF to the image to run}
+    environment:
+      APP_ENV: ${APP_ENV:-local}
+    ports:
+      - "${HOST_PORT:-19081}:8000"
+    restart: unless-stopped
