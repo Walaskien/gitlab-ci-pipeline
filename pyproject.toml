@@ -1,0 +1,12 @@
+[tool.ruff]
+line-length = 88
+# the test matrix goes down to 3.9, so the code must stay 3.9-clean
+target-version = "py39"
+src = ["app", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.pytest.ini_options]
+pythonpath = ["app"]
+testpaths = ["tests"]

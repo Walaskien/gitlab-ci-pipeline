@@ -1,0 +1,5 @@
+-r app/requirements.txt
+pytest==8.4.2
+pytest-cov==7.1.0
+ruff==0.17.4
+yamllint==1.37.1

@@ -1,0 +1,15 @@
+.git
+.github
+.gitlab-ci.yml
+.venv
+.venv39
+.cache
+.gitlab-ci-local
+node_modules
+ci
+deploy
+scripts
+tests
+**/__pycache__
+.pytest_cache
+.ruff_cache

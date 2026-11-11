@@ -1,0 +1,13 @@
+.venv/
+.venv39/
+.cache/
+node_modules/
+.gitlab-ci-local/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+report.xml
+deploy.log
+*.pyc
