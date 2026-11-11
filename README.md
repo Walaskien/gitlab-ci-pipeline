@@ -116,7 +116,13 @@ These jobs are only parsed, never executed, because they need a docker:dind serv
 
 ### On GitHub Actions
 
-Not run yet. The workflow `.github/workflows/ci.yml` passed `actionlint`, but nothing has been pushed. This section gets filled after the first run.
+Hosted runner `ubuntu-24.04` (image version 20261101.360.1). Only `push` events to `main` so far.
+
+- First run, on the commit with the readme: all four jobs green in 38 s end to end. yamllint 10 s, tests 3.12 11 s, tests 3.9 19 s, gitlab-ci-local 36 s. Inside the gitlab-ci-local job `--preview` and `--list` passed, the four lint jobs PASS, and `test: [3.9]` and `test: [3.12]` PASS with 11 tests each (Python 3.9.25 and 3.12.16) and 100% coverage. So the pipeline file also parses and the jobs run on a fresh runner, not only on my Mac.
+- That run printed an npm `EBADENGINE` warning: gitlab-ci-local 4.77.1 wants Node 24.14 or newer and the workflow had Node 22. It worked anyway. I changed `node-version` to 24 (Node 24.22.2 from the runner tool cache) in a follow-up commit.
+- Second run after that fix: green in 44 s (yamllint 9 s, tests 3.9 15 s, tests 3.12 13 s, gitlab-ci-local 40 s), and the warning is gone.
+- This is gitlab-ci-local on GitHub, not GitLab CI. `build:image` and the deploy jobs are still not run anywhere.
+- Not seen yet: the `pull_request` path and the `cancel-in-progress` rule.
 
 ### Run on gitlab.com
 
