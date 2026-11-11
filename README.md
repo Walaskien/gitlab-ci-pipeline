@@ -154,7 +154,6 @@ deploy/docker-compose.yml
 app/                      Flask service
 tests/                    pytest
 scripts/                  smoke.sh (HTTP), container-smoke.sh (docker exec)
-tools/gitlab-ci-local/    Dockerfile for the local runner
 .github/workflows/ci.yml  yamllint, tests, gitlab-ci-local on GitHub
 Dockerfile, Makefile
 ```
