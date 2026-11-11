@@ -1,0 +1,65 @@
+# The "environment" keyword only records a deployment in GitLab, it does not
+# decide where the code goes. These jobs deploy to the docker daemon of the
+# dind service, which disappears with the job. See "Limitations" in the README.
+
+.deploy-vars: &deploy_vars
+  COMPOSE_FILE: deploy/docker-compose.yml
+  COMPOSE_PROJECT_NAME: notes-${DEPLOY_ENV}
+  APP_ENV: ${DEPLOY_ENV}
+
+.deploy:
+  extends: .dind
+  stage: deploy
+  interruptible: false
+  timeout: 10m
+  variables:
+    <<: *deploy_vars
+  script:
+    - docker compose up -d --wait --wait-timeout 60
+    - scripts/smoke.sh "http://docker:${HOST_PORT}" "$CI_COMMIT_SHORT_SHA"
+  after_script:
+    - docker compose logs --no-color > deploy.log 2>&1 || true
+    - !reference [.dind, after_script]
+  artifacts:
+    when: always
+    expire_in: 1 week
+    paths:
+      - deploy.log
+
+deploy:staging:
+  extends: .deploy
+  needs:
+    - job: build:image
+      artifacts: true
+  variables:
+    DEPLOY_ENV: staging
+    HOST_PORT: "19081"
+  environment:
+    name: staging
+    deployment_tier: staging
+  resource_group: staging
+  rules:
+    - !reference [.rules:default-branch, rules]
+
+# Same image that staging just ran (IMAGE_REF comes from the build job's dotenv
+# report), started by hand. needs on staging means it cannot be played before
+# staging went green.
+deploy:production:
+  extends: .deploy
+  needs:
+    - job: build:image
+      artifacts: true
+    - deploy:staging
+  variables:
+    DEPLOY_ENV: production
+    HOST_PORT: "19082"
+  environment:
+    name: production
+    deployment_tier: production
+  resource_group: production
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+      # a manual job inside rules defaults to allow_failure: false, which
+      # leaves the whole pipeline in "blocked" until somebody plays it
+      allow_failure: true

@@ -1,0 +1,135 @@
+# Pipeline for the notes service. The repo is hosted on GitHub, this file is
+# meant for a GitLab runner (README: "How to run it on gitlab.com").
+
+include:
+  - local: ci/templates.yml
+  - local: ci/deploy.yml
+
+stages:
+  - lint
+  - test
+  - build
+  - deploy
+
+# One pipeline per push. A branch with an open merge request only gets the
+# merge request pipeline, otherwise every push would run twice.
+workflow:
+  name: "$CI_COMMIT_REF_NAME ($CI_PIPELINE_SOURCE)"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
+      when: never
+    - if: $CI_COMMIT_BRANCH
+    - if: $CI_COMMIT_TAG
+
+variables:
+  PYTHON_VERSION: "3.12"
+  DOCKER_VERSION: "27.5.1"
+  PIP_CACHE_DIR: $CI_PROJECT_DIR/.cache/pip
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+# YAML anchor: only valid inside this file, the included ones cannot see it.
+.retry-infra: &retry_infra
+  max: 2
+  when:
+    - runner_system_failure
+    - stuck_or_timeout_failure
+
+default:
+  retry: *retry_infra
+  timeout: 10m
+  interruptible: true
+
+lint:python:
+  extends: .python
+  stage: lint
+  script:
+    - ruff check .
+    - ruff format --check .
+
+lint:yaml:
+  extends: .python
+  stage: lint
+  script:
+    - yamllint -s .
+
+lint:dockerfile:
+  stage: lint
+  image:
+    name: hadolint/hadolint:v2.12.0-debian
+    entrypoint: [""]
+  script:
+    - hadolint Dockerfile
+
+lint:shell:
+  stage: lint
+  image:
+    name: koalaman/shellcheck-alpine:v0.10.0
+    entrypoint: [""]
+  script:
+    - shellcheck scripts/*.sh
+
+# needs: [] lets the tests start at once instead of waiting for the lint stage.
+test:
+  extends: .python
+  stage: test
+  needs: []
+  parallel:
+    matrix:
+      - PYTHON_VERSION: ["3.9", "3.12"]
+  script:
+    - pytest --junitxml=report.xml --cov=app --cov-report=term
+  after_script:
+    - echo "test cases in report $(grep -o '<testcase ' report.xml | wc -l)"
+  coverage: '/^TOTAL.*\s(\d+)%$/'
+  artifacts:
+    when: always
+    expire_in: 1 week
+    reports:
+      junit: report.xml
+
+# Builds with docker:dind. kaniko would not need a privileged service, but
+# upstream was archived in 2025, so it is not a safe base for a new pipeline.
+# Merge requests build and smoke-test the image, only the default branch and
+# tags push it (rules:variables flips PUSH).
+build:image:
+  extends: .dind
+  stage: build
+  needs:
+    - lint:dockerfile
+    - test
+  variables:
+    PUSH: "false"
+    IMAGE_REF: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_COMMIT_TAG
+      variables:
+        PUSH: "true"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  script:
+    # the first pipeline has no :latest yet, that is fine
+    - docker pull "$CI_REGISTRY_IMAGE:latest" || true
+    - >
+      docker build
+      --cache-from "$CI_REGISTRY_IMAGE:latest"
+      --build-arg BUILDKIT_INLINE_CACHE=1
+      --build-arg APP_VERSION="$CI_COMMIT_SHORT_SHA"
+      -t "$IMAGE_REF" .
+    - scripts/container-smoke.sh "$IMAGE_REF" "$CI_COMMIT_SHORT_SHA"
+    - |
+      if [ "$PUSH" = "true" ]; then
+        docker push "$IMAGE_REF"
+        if [ -n "$CI_COMMIT_TAG" ]; then
+          docker tag "$IMAGE_REF" "$CI_REGISTRY_IMAGE:$CI_COMMIT_TAG"
+          docker push "$CI_REGISTRY_IMAGE:$CI_COMMIT_TAG"
+        else
+          docker tag "$IMAGE_REF" "$CI_REGISTRY_IMAGE:latest"
+          docker push "$CI_REGISTRY_IMAGE:latest"
+        fi
+      else
+        echo "merge request pipeline, not pushing"
+      fi
+    - echo "IMAGE_REF=$IMAGE_REF" > build.env
+  artifacts:
+    reports:
+      dotenv: build.env
